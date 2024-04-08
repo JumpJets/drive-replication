@@ -28,6 +28,7 @@ import sys
 import orjson
 from rich import inspect
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import BarColumn, MofNCompleteColumn, Progress
 
 IS_WINDOWS = sys.platform == "win32"
@@ -150,7 +151,9 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
         exclude += [source.drive + os.sep + ex for ex in WINDOWS_DEFAULT_EXCLUDE]
 
     console.print("Initial settings for drive / folder replication:", style="bold white")
-    console.print(f"     Source: [bold blue]{source}[/bold blue]\nDestination: [bold blue]{destination}[/bold blue]\n    Exclude: {exclude!r}", end="\n\n")
+    console.print(f"     Source: [bold blue]{escape(str(source))}[/bold blue]")
+    console.print(f"Destination: [bold blue]{escape(str(destination))}[/bold blue]")
+    console.print(f"    Exclude: {exclude!r}\n")
     console.print("Continue? (Ctrl+C to exit)", style="italic")
     input()
 
@@ -281,7 +284,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
 
                 current_dir += len(dirs)
                 current_file += len(files)
-                status.update(f"Scanning... Dirs: [bold blue]{current_dir}[/bold blue] Files: [bold blue]{current_file}[/bold blue] | [yellow]{root}[/yellow]")
+                status.update(f"Scanning... Dirs: [bold blue]{current_dir}[/bold blue] Files: [bold blue]{current_file}[/bold blue] | [yellow]{escape(str(root))}[/yellow]")
 
         else:  # ? Exclude mount points on Linux systems
             for root, dirs, files in source.walk(top_down=True, follow_symlinks=False):
@@ -297,7 +300,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
 
                 current_dir += len(dirs)
                 current_file += len(files)
-                status.update(f"Scanning... Dirs: [bold blue]{current_dir}[/bold blue] Files: [bold blue]{current_file}[/bold blue] | [yellow]{root}[/yellow]")
+                status.update(f"Scanning... Dirs: [bold blue]{current_dir}[/bold blue] Files: [bold blue]{current_file}[/bold blue] | [yellow]{escape(str(root))}[/yellow]")
 
     with progress_file.open(mode="ab") as f:
         f.write(orjson.dumps({"source": str(source), "destination": str(destination), "exclude": exclude}))
@@ -396,7 +399,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
             nonlocal progress, progress_files
 
             progress.update(progress_files, advance=1)
-            # progress.console.print(f'Copying: "{source}"') # → "{destination}"
+            # progress.console.print(f'Copying: "{escape(source)}"') # → "{destination}"
 
             return copy2(source, destination, follow_symlinks=follow_symlinks)
 
