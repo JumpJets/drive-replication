@@ -1,0 +1,3 @@
+orjson
+pywin32; sys_platform == "win32"
+rich

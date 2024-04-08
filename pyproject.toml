@@ -1,0 +1,138 @@
+[tool.pyright]
+exclude = ["**/node_modules", "**/__pycache__", "migrations/versions"]
+
+[tool.ruff]
+line-length = 180
+show-fixes = true
+target-version = "py312"
+fix = true
+exclude = ["ntfslink"]
+
+[tool.ruff.format]
+line-ending = "lf"
+quote-style = "double"
+
+[tool.ruff.lint]
+extend-select = [
+	"A",     # flake8-builtins
+	"ANN",   # flake8-annotations
+	"ASYNC", # flake8-async
+	"B",     # flake8-bugbear
+	"BLE",   # flake8-blind-except
+	"C4",    # flake8-comprehensions
+	"C90",   # mccabe
+	"COM",   # flake8-comma
+	"D",     # pydocstyle
+	"DTZ",   # flake8-datetimez
+	"E",     # Pycodestyle errors
+	"EM",    # flake8-errmsg
+	# "ERA", # eradicate
+	"F",  # pyflakes
+	"FA", # flake8-future-annotations
+	# "FBT", # flake8-boolean-trap
+	"FIX",  # flake8-fixme
+	"FLY",  # flynt
+	"FURB", # refurb
+	"G",    # flake8-logging-format
+	"I",    # isort
+	"ICN",  # flake8-import-conventions
+	"INP",  # flake8-no-pep420
+	"ISC",  # flake8-implicit-str-concat
+	"LOG",  # flake8-logging
+	"N",    # pep8-naming
+	"PERF", # Perflint
+	"PGH",  # pygrep-hooks
+	"PIE",  # flake8-pie
+	"PL",   # pylint (convention (PLC), error (PLE), refactor (PLR), warning (PLW))
+	"PTH",  # flake8-use-pathlib
+	"PYI",  # flake8-pyi
+	"Q",    # flake8-quotes
+	"RET",  # flake8-return
+	"RSE",  # flake8-raise
+	"RUF",  # ruff
+	"S",    # flake8-bandit
+	"SIM",  # flake8-simplify
+	"SLF",  # flake8-self
+	"SLOT", # flake8-slots
+	"T10",  # flake8-debugger
+	# "T20",  # flake8-print
+	"TCH", # flake8-type-checking
+	"TD",  # flake8-todos
+	"TID", # flake8-tidy-imports
+	"TRY", # tryceratops
+	"UP",  # pyupgrade
+	"W",   # Pycodestyle warnings
+	"YTT", # flake8-2020
+]
+ignore = [
+	"ANN401", # Dynamically typed expressions (typing.Any) are disallowed
+	# "B008",   # Do not perform function call `<name>` in argument defaults (false positive on FastAPI)
+	"B905",   # `zip()` without an explicit `strict=` parameter
+	"BLE001", # Do not catch blind exception: `Exception`
+	# "D100",    # Missing docstring in public module
+	# "D104",    # Missing docstring in public package
+	# "D105",    # Missing docstring in magic method
+	# "D106",    # Missing docstring in public nested class
+	# "D107",    # Missing docstring in `__init__`
+	"D200",    # One-line docstring should fit on one line
+	"D201",
+	"D202",    # No blank lines allowed before/after function docstring
+	"D203",    # One blank line before class (conflict with D211: No blank line before class)
+	"D212",    # Multi-line docstring summary should start at the first line
+	"D400",
+	"D415",    # First line should end with a period, question mark, or exclamation point
+	"D403",    # First word of the first line should be properly capitalized
+	"E251",    # Unexpected spaces around keyword / parameter equals
+	"N801",    # Clas name `<name>` should use CapWords convention
+	"N802",    # Function name `<name>` should be lowercase
+	"N812",    # Lowercase `<name>` imported as non-lowercase `<asname>`
+	"PLC0414", # Import alias does not rename original package
+	"PLR091",  # Too many arguments / branches / statements / returns
+	"PLR2004", # Magic value used in comparison, consider replacing <value> with a constant variable
+	# "E402", "N818", "S101"
+	"TD002",  # Missing author in TODO; try: # TODO(<author_name>): ... or # TODO @<author_name>: ...
+	"TD003",  # Missing issue link on the line following this TODO
+	"TRY003", # Avoid specifying long messages outside the exception class
+	"TRY400", # Use `logging.exception` instead of `logging.error`
+	"TRY401", # Redundant exception object included in `logging.exception`
+]
+ignore-init-module-imports = true
+unfixable = [
+	"F841", # Local variable `x` is assigned to but never used
+]
+
+[tool.ruff.lint.flake8-annotations]
+suppress-dummy-args = true
+
+[tool.ruff.lint.flake8-builtins]
+builtins-ignorelist = [
+	"datetime",
+	"dict",
+	"id",
+	"input",
+	"format",
+	"type",
+	"zip",
+]
+
+[tool.ruff.lint.flake8-quotes]
+avoid-escape = false        # Don't bother trying to avoid escapes.
+docstring-quotes = "double"
+inline-quotes = "double"
+multiline-quotes = "double"
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+force-to-top = ["logging", "typing"] # "collections.abc"
+lines-between-types = 1              # Use a single line between direct and from import
+split-on-trailing-comma = false
+
+# [tool.ruff.lint.isort.sections]
+
+[tool.ruff.lint.pep8-naming]
+classmethod-decorators = [
+	"pydantic.validator",
+] # Allow Pydantic's `@validator` decorator to trigger class method treatment.
+
+[tool.ruff.lint.pycodestyle]
+ignore-overlong-task-comments = true
