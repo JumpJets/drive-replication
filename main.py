@@ -279,12 +279,23 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
                 for name in dirs:
                     collect_metadata(root / name, is_dir=True)
 
+                    current_dir += 1
+                    status.update(
+                        f"Scanning... Dirs: [bold blue]{current_dir}[/bold blue] Files: [bold blue]{current_file}[/bold blue] | [yellow]{escape(str(root / name))}[/yellow]",
+                    )
+
                 for name in files:
                     collect_metadata(root / name)
 
-                current_dir += len(dirs)
-                current_file += len(files)
-                status.update(f"Scanning... Dirs: [bold blue]{current_dir}[/bold blue] Files: [bold blue]{current_file}[/bold blue] | [yellow]{escape(str(root))}[/yellow]")
+                    current_file += 1
+                    status.update(
+                        f"Scanning... Dirs: [bold blue]{current_dir}[/bold blue] Files: [bold blue]{current_file}[/bold blue] | [yellow]{escape(str(root / name))}[/yellow]",
+                    )
+
+                # NOTE: while this is more performant, some directories take too long to update, so moving update to loops above
+                # current_dir += len(dirs)
+                # current_file += len(files)
+                # status.update(f"Scanning... Dirs: [bold blue]{current_dir}[/bold blue] Files: [bold blue]{current_file}[/bold blue] | [yellow]{escape(str(root))}[/yellow]")
 
         else:  # ? Exclude mount points on Linux systems
             for root, dirs, files in source.walk(top_down=True, follow_symlinks=False):
