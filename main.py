@@ -28,8 +28,10 @@ import sys
 import orjson
 from rich import inspect
 from rich.console import Console
+from rich.live import Live
 from rich.markup import escape
-from rich.progress import BarColumn, MofNCompleteColumn, Progress
+from rich.progress import BarColumn, DownloadColumn, MofNCompleteColumn, Progress, TransferSpeedColumn
+from rich.table import Table
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -77,28 +79,28 @@ def confirm(text: str = "", /) -> bool:
     return out in {"y", "yes", "true", "1"}
 
 
-def has_hidden_attribute(path: Path, /) -> bool:
+def has_hidden_attribute(path_stat: os.stat_result, /) -> bool:
     """
     Check file or directory for hidden attribute
     """
 
-    return path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN == stat.FILE_ATTRIBUTE_HIDDEN
+    return path_stat.st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN == stat.FILE_ATTRIBUTE_HIDDEN
 
 
-def has_tracked_attributes(path: Path, /) -> bool:
+def has_tracked_attributes(path_stat: os.stat_result, /) -> bool:
     """
     Check file or directory for tracked attributes
     """
 
-    return path.stat().st_file_attributes & TRACKED_ATTRIBUTES != 0
+    return path_stat.st_file_attributes & TRACKED_ATTRIBUTES != 0
 
 
-def is_hardlinked(p: Path, /) -> bool:
+def is_hardlinked(path: Path, path_stat: os.stat_result, /) -> bool:
     """
     Check if file have > 1 hardlinks
     """
 
-    return p.is_file() and p.stat().st_nlink > 1 and not p.is_symlink()
+    return path.is_file() and path_stat.st_nlink > 1 and not path.is_symlink()
 
 
 def are_hardlinked(p1: Path, p2: Path, /) -> bool:
@@ -162,6 +164,8 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
     total_dirs = 1  # ? + root dir
     list_dirs: deque[str] = deque()
     total_files = 0
+    total_size = 0
+    sizes: dict[str, int] = {}
     list_files: deque[str] = deque()
     total_links = 0
     list_links: deque[str] = deque()
@@ -184,15 +188,16 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
         * junction points created as regular folders and all content in them are duplicated
         """
 
-        nonlocal exclude, total_dirs, total_files, total_links, hardlinks, extra_attrib_dirs, junction_dirs, oserrored, list_dirs, list_files, list_links
+        nonlocal exclude, total_dirs, total_files, total_size, total_links, hardlinks, extra_attrib_dirs, junction_dirs, oserrored, list_dirs, list_files, list_links, sizes
 
         if any(path.match(e) for e in exclude):
             return
 
         str_path = str(path)
+        path_stat: os.stat_result = path.stat()
 
         try:
-            if (path_is_hardlinked := is_hardlinked(path)) and not any(path in hl for hl in hardlinks.values()):
+            if (path_is_hardlinked := is_hardlinked(path, path_stat)) and not any(path in hl for hl in hardlinks.values()):
                 _hardlinks = list_hardlinks_windows(path) if IS_WINDOWS else [path]  # TODO: add Linux detection
                 hardlinks[path] = _hardlinks
                 exclude.extend(str(hl) for hl in _hardlinks if hl != path)
@@ -209,7 +214,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
             exclude.append(str_path)
 
         try:  # ? Broken symlinks can't get attributes, raise FileNotFoundError | (is_hidden := )
-            if (IS_WINDOWS and has_tracked_attributes(path)) and is_dir:
+            if (IS_WINDOWS and has_tracked_attributes(path_stat)) and is_dir:
                 extra_attrib_dirs.append(path)
         except FileNotFoundError:
             if path_is_hardlinked:
@@ -249,10 +254,14 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
             case False, False, False:
                 total_files += 1
                 list_files.append(str_path)
+                total_size += path_stat.st_size
+                sizes[str(path)] = path_stat.st_size
             case False, _, True:
                 if path in hardlinks:
                     total_files += 1
                     list_files.append(str_path)
+                    total_size += path_stat.st_size
+                    sizes[str(path)] = path_stat.st_size
                 else:
                     total_links += 1
                     list_links.append(str_path)
@@ -333,6 +342,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
     console.print("Total  dirs:", total_dirs)
     console.print("Total files:", total_files)
     console.print("Total links:", total_links)
+    console.print(f"Total size: {total_size / (1024 ** 3):.2f} GB, {total_size} bytes")
     if oserrored:
         console.print("OS Errors:", oserrored, style="red")
     console.print("\n──────────────────────────────────────────────────────────\n")
@@ -344,17 +354,32 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
     processed: deque[str] = deque()
 
     _default_columns = Progress.get_default_columns()
-    with Progress(
-        _default_columns[0],
-        BarColumn(None),
-        MofNCompleteColumn(),
-        _default_columns[-1],
-        expand=True,
-    ) as progress:
-        progress_files = progress.add_task("  Files:", total=total_files)
-        progress_dirs = progress.add_task("Folders:", total=total_dirs)
-        progress_links = progress.add_task("  Links:", total=total_links)
-        progress.update(progress_dirs, advance=-1)
+    progress = Progress(_default_columns[0], BarColumn(None), MofNCompleteColumn(), _default_columns[-1], expand=True)
+    progress_files = progress.add_task("  Files:", total=total_files)
+    progress_dirs = progress.add_task("Folders:", total=total_dirs)
+    progress_links = progress.add_task("  Links:", total=total_links)
+    progress.advance(progress_dirs, advance=-1)
+
+    # with Progress(
+    #     _default_columns[0],
+    #     BarColumn(None),
+    #     MofNCompleteColumn(),
+    #     _default_columns[-1],
+    #     expand=True,
+    # ) as progress:
+    #     progress_files = progress.add_task("  Files:", total=total_files)
+    #     progress_dirs = progress.add_task("Folders:", total=total_dirs)
+    #     progress_links = progress.add_task("  Links:", total=total_links)
+    #     progress.advance(progress_dirs, advance=-1)
+
+    progress0 = Progress(_default_columns[0], BarColumn(None), TransferSpeedColumn(), DownloadColumn(), _default_columns[-1], expand=True)
+    progress_size = progress0.add_task("   Size:", total=total_size)
+
+    progress_table = Table.grid()
+    progress_table.add_row(progress0)
+    progress_table.add_row(progress)
+
+    with Live(progress_table, refresh_per_second=10):
 
         def ignore_controller(path: str, files: Sequence[str]) -> set[str]:
             """
@@ -393,9 +418,9 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
             # input()
             to_be_processed = [(p / f) for f in files if f not in _exclude]
             processed.extend(map(str, to_be_processed))
-            progress.update(progress_dirs, advance=1)
+            progress.advance(progress_dirs, advance=1)
             # NOTE: moved to copy2 function
-            # progress.update(progress_files, advance=len([f for f in to_be_processed if f.is_file()]))
+            # progress.advance(progress_files, advance=len([f for f in to_be_processed if f.is_file()]))
 
             return set(_exclude)
 
@@ -407,9 +432,10 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
             Folders does not created with this function.
             """
 
-            nonlocal progress, progress_files
+            nonlocal progress, progress0, progress_files, progress_size, sizes
 
-            progress.update(progress_files, advance=1)
+            progress.advance(progress_files, advance=1)
+            progress0.advance(progress_size, advance=sizes[source])
             # progress.console.print(f'Copying: "{escape(source)}"') # → "{destination}"
 
             return copy2(source, destination, follow_symlinks=follow_symlinks)
@@ -422,7 +448,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
             error_files = {n: er for n, _, er in e.args[0]}
 
             # inspect(tuple(error_files.items()))
-            progress.update(progress_files, advance=-len(error_files))
+            progress.advance(progress_files, advance=-len(error_files))
             progress.console.print("Errors during file or directory copy:", style="red")
 
             for f, er in error_files.items():
@@ -450,7 +476,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
 
                 if kernel32.SetFileAttributesW(str(target), attrs):
                     progress.console.print(f"Copy stat from {folder!r} to {target!r}: {attrs}")
-                    progress.update(progress_links, advance=1)
+                    progress.advance(progress_links, advance=1)
                 else:
                     oserrored.append(folder)
                     progress.console.print(f"Copy stat error at {target!r}", style="red")
@@ -474,14 +500,14 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
                     kernel32.SetFileAttributesW(str(target), attrs)
 
                     progress.console.print(f"Created Junction point from {folder!r} to {target!r}")
-                    progress.update(progress_links, advance=1)
+                    progress.advance(progress_links, advance=1)
                 except OSError as e:
                     oserrored.append(folder)
                     progress.console.print("Junction creation error:", e, f"at {target!r}", style="red")
 
             progress.console.print()
 
-        progress.update(progress_dirs, advance=1)
+        progress.advance(progress_dirs, advance=1)
 
     with progress_file.open(mode="a", encoding="utf-8") as f:
         f.writelines(p + "\n" for p in processed)
