@@ -20,7 +20,7 @@ from itertools import islice
 import os
 from pathlib import Path
 from shutil import Error as ShutilError
-from shutil import copy2, copytree
+from shutil import copy2, copystat, copytree
 import stat
 from subprocess import run
 import sys
@@ -194,7 +194,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
             return
 
         str_path = str(path)
-        path_stat: os.stat_result = path.stat()
+        path_stat: os.stat_result = path.stat(follow_symlinks=False)
 
         try:
             if (path_is_hardlinked := is_hardlinked(path, path_stat)) and not any(path in hl for hl in hardlinks.values()):
@@ -265,9 +265,11 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
                 else:
                     total_links += 1
                     list_links.append(str_path)
+                    sizes[str(path)] = path_stat.st_size
             case False, True, _:
                 total_links += 1
                 list_links.append(str_path)
+                sizes[str(path)] = path_stat.st_size
 
         # console.print(f"path = {path!r}")
         # console.print("path.is_dir() =", is_dir)
@@ -471,12 +473,12 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
             kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
 
             for folder in extra_attrib_dirs:
-                attrs = folder.stat().st_file_attributes
+                attrs = folder.stat(follow_symlinks=False).st_file_attributes
                 target = Path(destination, *folder.parts[len_source:])
 
                 if kernel32.SetFileAttributesW(str(target), attrs):
                     progress.console.print(f"Copy stat from {folder!r} to {target!r}: {attrs}")
-                    progress.advance(progress_links, advance=1)
+                    # progress.advance(progress_links, advance=1)
                 else:
                     oserrored.append(folder)
                     progress.console.print(f"Copy stat error at {target!r}", style="red")
@@ -492,18 +494,40 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
             progress.console.print()
 
             for folder in junction_dirs:
-                attrs = folder.stat().st_file_attributes
+                attrs = folder.stat(follow_symlinks=False).st_file_attributes
+                folder_source = folder.readlink()
+                target_source = Path(destination, *folder_source.parts[len_source:])
                 target = Path(destination, *folder.parts[len_source:])
+                # target = Path(f"{os.sep * 2}?{os.sep}{destination.parts[0]}", *destination.parts[1:], *folder_source.parts[len_source:])
 
                 try:
-                    create_junction_point(folder, target)
+                    create_junction_point(target_source, target)
+                    copystat(folder, target)
                     kernel32.SetFileAttributesW(str(target), attrs)
 
-                    progress.console.print(f"Created Junction point from {folder!r} to {target!r}")
+                    progress.console.print(f"Created Junction point from {target_source!r} to {target!r}")
                     progress.advance(progress_links, advance=1)
                 except OSError as e:
                     oserrored.append(folder)
                     progress.console.print("Junction creation error:", e, f"at {target!r}", style="red")
+
+            for _hl_source, hl_list in hardlinks.items():
+                for _hl in hl_list:
+                    if _hl == _hl_source:
+                        continue
+
+                    try:
+                        hl_source = Path(destination, *_hl_source.parts[len_source:])
+                        hl = Path(destination, *_hl.parts[len_source:])
+                        hl.hardlink_to(hl_source)
+
+                        attrs = _hl.stat(follow_symlinks=False).st_file_attributes
+                        kernel32.SetFileAttributesW(str(hl), attrs)
+
+                        progress.advance(progress_links, advance=1)
+                        progress.console.print(f"Created hardlink from {hl_source!r} to {hl!r}")
+                    except FileExistsError as e:
+                        progress.console.print("Hardlink creation error:", e)
 
             progress.console.print()
 
@@ -514,13 +538,13 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
 
     if oserrored:
         with progress_file.with_suffix(".error.json").open(mode="ab") as f:
-            f.write(orjson.dumps(map(str, oserrored)))
+            f.write(orjson.dumps([str(e) for e in oserrored]))
 
     # console.print("\nProcessed:")
     # console.print(processed)
     console.print("Replication completed", style="bold green")
 
-    return bool(oserrored)
+    return not oserrored
 
 
 def main_continue(

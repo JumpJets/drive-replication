@@ -140,3 +140,4 @@ logs/*.log.*
 /mft
 progress.jsonl
 progress.*.jsonl
+progress.*.json
