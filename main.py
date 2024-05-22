@@ -4,8 +4,8 @@
 Copy all the files and folders, with preserving metadata such as dates, hidden attributes, etc.
 
 ## `progress.jsonl` structure:
-1. {source: Path, destination: Path, exclude: list[str]}
-2. hardlinks: dict[Path, list[Path]]
+1. {source: Path, destination: Path, exclude: deque[str]}
+2. hardlinks: dict[Path, deque[Path]]
 3. extra_attrib_dirs: deque[Path]
 4. junction_dirs: deque[Path]
 5. {dirs: deque[Path], list_files: deque[Path], list_links: deque[Path]}
@@ -58,7 +58,7 @@ WINDOWS_DEFAULT_EXCLUDE: list[str] = [
     "hiberfil.sys",  # ? RAM on disc for hybernation
     "pagefile.sys",  # ? RAM on disc, temporary file
     "System Volume Information",  # ? Drive-specific temporary files
-    f"System Volume Information{os.sep}*",
+    # f"System Volume Information{os.sep}*",
 ]
 
 progress_file = (Path(__file__) / ".." / "progress.jsonl").resolve()
@@ -114,12 +114,12 @@ def are_hardlinked(p1: Path, p2: Path, /) -> bool:
     return p1.samefile(p2) or (((p1s := p1.stat()).st_ino == (p2s := p2.stat()).st_ino) and (p1s.st_dev == p2s.st_dev))
 
 
-def list_hardlinks_windows(p: Path | str | bytes, /) -> list[Path]:
+def list_hardlinks_windows(p: Path | str | bytes, /) -> deque[Path]:
     """
     Return list of hardlinks for a given file (Windows)
     """
 
-    return [Path(f).absolute() for f in FindFileNames(os.fsdecode(os.fspath(p)))]
+    return deque(Path(f).absolute() for f in FindFileNames(os.fsdecode(os.fspath(p))))
 
 
 def create_junction_point(source: Path, destination: Path, /) -> int:
@@ -139,18 +139,18 @@ def create_junction_point(source: Path, destination: Path, /) -> int:
     return run(["cmd", "/c", "mklink", "/J", destination, source], check=True).returncode  # noqa: S603, S607
 
 
-# ? Main function
+# ? Main replication function
 
 
-def main(source: Path, destination: Path, exclude: list[str] | None = None, *, dir_exist_ok: bool = True) -> bool:  # noqa: C901
+def replication(source: Path, destination: Path, exclude: deque[str] | None = None, *, dir_exist_ok: bool = True) -> bool:  # noqa: C901
     """
     Drive replication
     """
 
     if not exclude:
-        exclude = [source.drive + os.sep + ex for ex in WINDOWS_DEFAULT_EXCLUDE] if IS_WINDOWS else []
+        exclude = deque(source.drive + os.sep + ex for ex in WINDOWS_DEFAULT_EXCLUDE) if IS_WINDOWS else deque()
     elif IS_WINDOWS:
-        exclude += [source.drive + os.sep + ex for ex in WINDOWS_DEFAULT_EXCLUDE]
+        exclude.extend(source.drive + os.sep + ex for ex in WINDOWS_DEFAULT_EXCLUDE)
 
     console.print("Initial settings for drive / folder replication:", style="bold white")
     console.print(f"     Source: [bold blue]{escape(str(source))}[/bold blue]")
@@ -173,7 +173,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
     current_file = 0
 
     # ? Metadata that is not being restored:
-    hardlinks: dict[Path, list[Path]] = {}
+    hardlinks: dict[Path, deque[Path]] = {}
     extra_attrib_dirs: deque[Path] = deque()
     junction_dirs: deque[Path] = deque()
     oserrored: deque[Path] = deque()
@@ -190,15 +190,21 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
 
         nonlocal exclude, total_dirs, total_files, total_size, total_links, hardlinks, extra_attrib_dirs, junction_dirs, oserrored, list_dirs, list_files, list_links, sizes
 
-        if any(path.match(e) for e in exclude):
-            return
+        # NOTE: pattern matching is very slow here, uses fnmatch.translate a lot of the time
+        # if any(path.match(e) for e in exclude):
+        #     return
 
         str_path = str(path)
+
+        # NOTE: faster alternative w/o pattern matching
+        if any(e in str_path for e in exclude):
+            return
+
         path_stat: os.stat_result = path.stat(follow_symlinks=False)
 
         try:
             if (path_is_hardlinked := is_hardlinked(path, path_stat)) and not any(path in hl for hl in hardlinks.values()):
-                _hardlinks = list_hardlinks_windows(path) if IS_WINDOWS else [path]  # TODO: add Linux detection
+                _hardlinks = list_hardlinks_windows(path) if IS_WINDOWS else deque((path,))  # TODO: add Linux detection
                 hardlinks[path] = _hardlinks
                 exclude.extend(str(hl) for hl in _hardlinks if hl != path)
         except OSError:
@@ -325,7 +331,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
                 status.update(f"Scanning... Dirs: [bold blue]{current_dir}[/bold blue] Files: [bold blue]{current_file}[/bold blue] | [yellow]{escape(str(root))}[/yellow]")
 
     with progress_file.open(mode="ab") as f:
-        f.write(orjson.dumps({"source": str(source), "destination": str(destination), "exclude": exclude}))
+        f.write(orjson.dumps({"source": str(source), "destination": str(destination), "exclude": list(exclude)}))
         f.write(b"\n")
         f.write(orjson.dumps({str(k): [str(p) for p in v] for k, v in hardlinks.items()}))
         f.write(b"\n")
@@ -336,7 +342,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
         f.write(orjson.dumps({"dirs": list(list_dirs), "files": list(list_files), "links": list(list_links)}))
         f.write(b"\n")
 
-    console.print("Hardlinks:", hardlinks or "None")
+    console.print("Hardlinks:", len(hardlinks) or "None")
     console.print("Hidden:", extra_attrib_dirs or "None")
     if junction_dirs:
         console.print("Junction:", junction_dirs or "None")
@@ -394,7 +400,7 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
 
             nonlocal exclude, progress, progress_dirs  # , progress_files, list_files, list_dirs, list_links
 
-            _exclude: list[str] = []
+            _exclude: deque[str] = deque()
             p = Path(path)
 
             for e in exclude:
@@ -409,11 +415,11 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
                 # ? Pattern matching (with *)
                 # Example: path: D:\test with some files and exc: D:\test\*.txt
                 elif p.match(e):
-                    _exclude.extend(fnmatch.filter(files, last_part))
+                    _exclude.extend(fnmatch.filter(files, last_part))  # TODO: replace for faster alternative (fnmatch.translate is slow)
 
                 # ? Files matching
                 # Example: exc: D:\test\1.txt, path: D:\test, files ["1.txt", "2.txt"]
-                elif pe.parent == p and (_files := fnmatch.filter(files, last_part)):
+                elif pe.parent == p and (_files := fnmatch.filter(files, last_part)):  # TODO: same
                     _exclude.extend(_files)
 
             # progress.console.print(f"\nProcessing path: {path!r} Files:", files, "Path excluded:", path in exclude, _exclude)
@@ -547,10 +553,10 @@ def main(source: Path, destination: Path, exclude: list[str] | None = None, *, d
     return not oserrored
 
 
-def main_continue(
+def replication_continue(
     source: Path,
     destination: Path,
-    exclude: list[str],
+    exclude: deque[str],
     hardlinks: dict[Path, list[Path]],
     extra_attrib_dirs: deque[Path],
     junction_dirs: deque[Path],
@@ -569,9 +575,13 @@ def main_continue(
 # ? Startup
 
 
-if __name__ == "__main__":
+def main() -> None:  # noqa: C901
+    """
+    Init replication
+    """
+
     args = sys.argv[1:]
-    exclude = args[2:]
+    exclude = deque(args[2:])
 
     try:
         if progress_file.exists() and progress_file.stat().st_size > 0:
@@ -590,7 +600,7 @@ if __name__ == "__main__":
                     for p in f.readlines():
                         processed.append(Path(p.decode("utf-8")))
 
-                main_continue(
+                replication_continue(
                     source=source,
                     destination=dest,
                     exclude=exclude,
@@ -646,6 +656,10 @@ if __name__ == "__main__":
             if not confirm("> "):
                 sys.exit(1)
 
-        main(source, destination, exclude=exclude)
+        replication(source, destination, exclude=exclude)
     except KeyboardInterrupt:
-        sys.exit()
+        return
+
+
+if __name__ == "__main__":
+    main()
