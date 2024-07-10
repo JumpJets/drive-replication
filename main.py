@@ -83,6 +83,8 @@ class ProgressContext(BaseModel):
     size: TaskID = Field(..., title="Size progress bar ID")
     table: Table = Field(..., title="Table for main and sub progress bar")
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
 
 class Context(BaseModel):
     """
@@ -251,6 +253,7 @@ def collect_metadata_tracked_attributes(
     path: Path,
     str_path: str,
     path_stat: os.stat_result,
+    *,
     path_is_hardlinked: bool,
     is_junction: bool,
     is_dir: bool = False,
@@ -301,8 +304,9 @@ def collect_metadata_assign_path_type(
     path: Path,
     str_path: str,
     path_stat: os.stat_result,
-    is_symlink_or_junction: bool,
+    *,
     path_is_hardlinked: bool,
+    is_symlink_or_junction: bool,
     is_dir: bool = False,
 ) -> None:
     """
@@ -373,10 +377,10 @@ def collect_metadata(ctx: Context, path: Path, /, is_dir: bool = False) -> None:
         ctx.junction_dirs.append(path)
         ctx.exclude.append(str_path)
 
-    if not collect_metadata_tracked_attributes(ctx, path, str_path, path_stat, path_is_hardlinked, is_junction, is_dir=is_dir):
+    if not collect_metadata_tracked_attributes(ctx, path, str_path, path_stat, path_is_hardlinked=path_is_hardlinked, is_junction=is_junction, is_dir=is_dir):
         return
 
-    collect_metadata_assign_path_type(ctx, path, str_path, path_stat, is_symlink_or_junction, path_is_hardlinked, is_dir=is_dir)
+    collect_metadata_assign_path_type(ctx, path, str_path, path_stat, path_is_hardlinked=path_is_hardlinked, is_symlink_or_junction=is_symlink_or_junction, is_dir=is_dir)
 
 
 # * Scan directory for files
