@@ -26,7 +26,7 @@ from subprocess import run
 import sys
 
 import orjson
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from rich import inspect
 from rich.console import Console
 from rich.live import Live
